@@ -5,7 +5,6 @@ from CheckDetection import CheckDetection
 import yaml
 import threading
 import argparse
-from threading import Lock
 from queue import Queue
 import signal
 import time
