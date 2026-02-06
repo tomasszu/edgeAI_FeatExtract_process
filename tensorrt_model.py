@@ -1,7 +1,5 @@
-import ctypes
 import tensorrt as trt
-ctypes.CDLL("/usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so", mode=ctypes.RTLD_GLOBAL)
-trt.init_libnvinfer_plugins(None, "")
+# ctypes.CDLL(...)   ← plugin import removed permanently, was needed for Ubuntu tho, can check there
 
 import pycuda.driver as cuda
 # import pycuda.autoinit
@@ -14,7 +12,7 @@ TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 class TensorRTModel:
     def __init__(self, engine_path, device_id=0):
         
-        # šis ir pycuda autoinit aizvietotājs
+        # this is pycuda autoinit replacement
         # Initialize CUDA driver (safe to call multiple times)
         cuda.init()
         self.device = cuda.Device(device_id)

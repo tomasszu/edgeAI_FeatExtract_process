@@ -20,7 +20,10 @@ def parse_args():
     return parser.parse_args()
 
 # ---------- globals and shutdown ----------
-inference_queue = Queue()
+# Could put maxsize=32 ie for the que, so it doesent bloat, BUT currently it would pose problems with the shutdown .put(None) pill
+# that would need to be resoved to use maxsize.
+#  but this in case needs to be troubleshooted if its the right fit in terms of max size
+inference_queue = Queue() 
 shutdown_event = threading.Event()
 
 def signal_handler(sig, frame):
@@ -33,7 +36,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 # ---------- inference worker ----------
-def inference_worker(engine_path=None):
+def inference_worker(sender):
     """Single thread that owns the CUDA context and runs inference."""
     # import here to ensure CUDA context created on this thread
     from ExtractingFeatures import ExtractingFeatures
@@ -46,7 +49,7 @@ def inference_worker(engine_path=None):
         if item is None:
             print("[inference_worker] received shutdown pill")
             break
-        track_id, cam_id, image, payload_image, sender = item
+        track_id, cam_id, image, payload_image = item
         print(f"[inference_worker] got item for track_id={track_id}, cam_id={cam_id}")
         try:
             features = extractor.get_feature(image)
@@ -70,7 +73,7 @@ def inference_worker(engine_path=None):
     print("Inference worker exiting cleanly.")
 
 # ---------- per-camera loop ----------
-def process_stream(cam_name, cam_params, args, sender):
+def process_stream(cam_name, cam_params, args):
     print(f"Starting processing thread for {cam_name}")
 
     receiver = ReceiveDetectionsService(
@@ -102,7 +105,7 @@ def process_stream(cam_name, cam_params, args, sender):
 
             if check.perform_checks(track_id, bbox):
                 print(f"[{cam_name}] enqueueing track_id={track_id}")
-                inference_queue.put((track_id, cam_id, image, payload_image, sender))
+                inference_queue.put((track_id, cam_id, image, payload_image))
 
     print(f"{cam_name} thread exiting cleanly.")
 
@@ -111,18 +114,18 @@ def main(cons_args):
     with open(cons_args.input_conf, "r") as f:
         config = yaml.safe_load(f)
 
-    # Start ONE inference worker (non-daemon so it won't be abruptly killed)
-    worker = threading.Thread(target=inference_worker, name="inference_worker")
-    worker.start()
-
     sender = SendFeatures(mqtt_broker=args.mqtt_broker, mqtt_port=args.mqtt_port,
                               mqtt_topic=args.mqtt_topic)
+
+    # Start ONE inference worker (non-daemon so it won't be abruptly killed)
+    worker = threading.Thread(target=inference_worker, args=(sender,), name="inference_worker") # komats aiz sender, lai but args plural
+    worker.start()
 
     cam_threads = []
     for cam_name, cam_params in config["streams"].items():
         t = threading.Thread(
             target=process_stream,
-            args=(cam_name, cam_params, cons_args, sender),
+            args=(cam_name, cam_params, cons_args),
             name=cam_name
         )
         t.start()

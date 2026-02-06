@@ -6,7 +6,7 @@ import cv2
 class ExtractingFeatures:
     def __init__(self):
 
-        model_path = "model/veri+vehixlex_editTrainPar1/net_39_opt_jetson_built.engine"
+        model_path = "model/sp4_ep6_ft_noCEL_070126_26ep.engine"
         self.batch_size = 1  # simulate streaming
 
         self.model = TensorRTModel(model_path)
