@@ -1,0 +1,32 @@
+streams:
+  vid_1:
+    mqtt_topic: "tomass/detections_camera_1"
+    cam_id: 'S01c004'
+    crop_zone_rows: 7
+    crop_zone_cols: 6
+    crop_zone_area_bottom_left: [0, 1000]
+    crop_zone_area_top_right: [1750, 320]
+
+  vid_2:
+    mqtt_topic: "tomass/detections_camera_2"
+    cam_id: 'S01c001'
+    crop_zone_rows: 7
+    crop_zone_cols: 6
+    crop_zone_area_bottom_left: [200, 900]
+    crop_zone_area_top_right: [1750, 320]
+
+  vid_3:
+    mqtt_topic: "tomass/detections_camera_3"
+    cam_id: 'S01c002'
+    crop_zone_rows: 7 # row and col counts yet to be adjusted
+    crop_zone_cols: 6
+    crop_zone_area_bottom_left: [200, 900]
+    crop_zone_area_top_right: [1750, 320]
+
+  vid_4:
+    mqtt_topic: "tomass/detections_camera_4"
+    cam_id: 'S01c003'
+    crop_zone_rows: 7 # row and col counts yet to be adjusted
+    crop_zone_cols: 6
+    crop_zone_area_bottom_left: [200, 900]
+    crop_zone_area_top_right: [1750, 270]

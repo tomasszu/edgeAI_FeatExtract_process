@@ -6,10 +6,11 @@ import uuid
 
 
 class SendFeatures:
-    def __init__(self, mqtt_broker="localhost", mqtt_port=1884, mqtt_topic="tomass/features"):
+    def __init__(self, mqtt_broker="localhost", mqtt_port=1884, mqtt_topic="tomass/features", model_name="sp4_ep6_ft_noCEL_070126_26ep.engine"):
         self.mqtt_broker = mqtt_broker
         self.mqtt_port = mqtt_port
         self.mqtt_topic = mqtt_topic
+        self.model_name = model_name
         self.connected = False
 
         # Setup MQTT client
@@ -49,7 +50,8 @@ class SendFeatures:
             'track_id': int(track_id),
             'cam_id': int(cam_id),
             'image': payload_image,
-            'features': features
+            'features': features,
+            'model_name': self.model_name
         }
 
         self.send_over_mqtt(data)

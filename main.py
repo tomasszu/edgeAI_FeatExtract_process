@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument('--mqtt_broker', type=str, default='localhost', help='Address of the MQTT broker')
     parser.add_argument('--mqtt_port', type=int, default=1884, help='Port of the MQTT broker')
     parser.add_argument('--mqtt_topic', type=str, default="tomass/features", help='mqtt topic to send the detections to.')
+    parser.add_argument('--model_name', type=int, default="sp4_ep6_ft_noCEL_070126_26ep.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
     return parser.parse_args()
 
 # ---------- globals and shutdown ----------
@@ -115,7 +116,7 @@ def main(cons_args):
         config = yaml.safe_load(f)
 
     sender = SendFeatures(mqtt_broker=args.mqtt_broker, mqtt_port=args.mqtt_port,
-                              mqtt_topic=args.mqtt_topic)
+                              mqtt_topic=args.mqtt_topic, model_name=args.model_name)
 
     # Start ONE inference worker (non-daemon so it won't be abruptly killed)
     worker = threading.Thread(target=inference_worker, args=(sender,), name="inference_worker") # komats aiz sender, lai but args plural

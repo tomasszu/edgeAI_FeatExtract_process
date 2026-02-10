@@ -1,16 +1,41 @@
+# Configurations for the Network cameras crop_zones
 streams:
   camera_1:
     mqtt_topic: "tomass/detections_camera_1"
-    cam_id: 4
-    crop_zone_rows: 7
-    crop_zone_cols: 6
-    crop_zone_area_bottom_left: [0, 1000]
-    crop_zone_area_top_right: [1750, 320]
+    cam_id: 'vtfw.edi.lv:63541'
+    crop_zone_rows: 5
+    crop_zone_cols: 4
+    crop_zone_area_bottom_left: [200, 800]
+    crop_zone_area_top_right: [1100, 270]
 
   camera_2:
     mqtt_topic: "tomass/detections_camera_2"
-    cam_id: 1
-    crop_zone_rows: 7
-    crop_zone_cols: 6
-    crop_zone_area_bottom_left: [200, 900]
-    crop_zone_area_top_right: [1750, 320]
+    cam_id: 'vtfw.edi.lv:63542'
+    crop_zone_rows: 5
+    crop_zone_cols: 4
+    crop_zone_area_bottom_left: [200, 800]
+    crop_zone_area_top_right: [1100, 270]
+
+  camera_3:
+    mqtt_topic: "tomass/detections_camera_3"
+    cam_id: 'vtfw.edi.lv:63543'
+    crop_zone_rows: 5
+    crop_zone_cols: 3
+    crop_zone_area_bottom_left: [200, 850]
+    crop_zone_area_top_right: [1000, 300]
+
+  camera_4:
+    mqtt_topic: "tomass/detections_camera_4"
+    cam_id: 'vtfw.edi.lv:63544'
+    crop_zone_rows: 4
+    crop_zone_cols: 2
+    crop_zone_area_bottom_left: [20, 850]
+    crop_zone_area_top_right: [900, 400]
+
+  camera_5:
+    mqtt_topic: "tomass/detections_camera_5"
+    cam_id: 'vtfw.edi.lv:63545'
+    crop_zone_rows: 3
+    crop_zone_cols: 4
+    crop_zone_area_bottom_left: [225, 900]
+    crop_zone_area_top_right: [1100, 500]
