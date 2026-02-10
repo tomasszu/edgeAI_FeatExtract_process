@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--mqtt_broker', type=str, default='localhost', help='Address of the MQTT broker')
     parser.add_argument('--mqtt_port', type=int, default=1884, help='Port of the MQTT broker')
     parser.add_argument('--mqtt_topic', type=str, default="tomass/features", help='mqtt topic to send the detections to.')
-    parser.add_argument('--model_name', type=int, default="sp4_ep6_ft_noCEL_070126_26ep.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
+    parser.add_argument('--model_name', type=str, default="sp4_ep6_ft_noCEL_070126_26ep.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
     return parser.parse_args()
 
 # ---------- globals and shutdown ----------

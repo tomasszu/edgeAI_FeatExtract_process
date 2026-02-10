@@ -48,7 +48,7 @@ class SendFeatures:
         
         data = {
             'track_id': int(track_id),
-            'cam_id': int(cam_id),
+            'cam_id': cam_id,
             'image': payload_image,
             'features': features,
             'model_name': self.model_name
