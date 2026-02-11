@@ -55,6 +55,31 @@ class CheckDetection:
                 zones.append((int(x1), int(y1), int(x2), int(y2)))
 
         return zones
+    
+    def check_crop_zones(self, track_id, bbox):
+        center = self.get_center(bbox)
+        zone = self.zone_of_point(center)
+
+        # Only move forward if zone changed and vehicle moved > pixel threshold
+        # shis ir lai vehicle nelēkātu starp zonām, ja tā stāv uz robežas (np linalg norm ļauj mums dabūt euclidean distance starp diviem punktiem)
+        threshold = 10  # pixels, adjust based on your frame resolution
+
+        last_zone, last_center = self.zone_of_detections.get(track_id, (None, None))
+
+        if zone == -1:
+            if track_id in self.zone_of_detections and (np.linalg.norm(np.array(center)-np.array(last_center)) > threshold):
+                del self.zone_of_detections[track_id]
+            return False
+
+        if last_zone is None:
+            self.zone_of_detections[track_id] = (zone, center)
+            return True
+        elif last_zone != zone and (last_center is not None and np.linalg.norm(np.array(center)-np.array(last_center)) > threshold):
+            self.zone_of_detections[track_id] = (zone, center)
+            return True
+
+
+        return False
 
 
 
@@ -79,25 +104,25 @@ class CheckDetection:
 
         return attention
     
-    def check_crop_zones(self, track_id, bbox):
+    # def check_crop_zones(self, track_id, bbox): ### OLD crop zones code, not using distance vector yet
 
-        center_point = self.get_center(bbox)
+    #     center_point = self.get_center(bbox)
 
-        zone = self.zone_of_point(center_point)
-        if zone != -1:
-            # If the point is in a zone
-            if((track_id not in self.zone_of_detections) or (self.zone_of_detections[track_id] != zone)):
-                # If the track_id is not in the dictionary or the zone has changed
-                # Update the zone of detections for the track_id
-                self.zone_of_detections.update({track_id: zone})
-                return True
-        else:
-            # If the point is not in any zone, remove the track_id from the dictionary
-            if track_id in self.zone_of_detections:
-                del self.zone_of_detections[track_id]
-                return False
-        # If the point is not in any zone, return False
-            return False
+    #     zone = self.zone_of_point(center_point)
+    #     if zone != -1:
+    #         # If the point is in a zone
+    #         if((track_id not in self.zone_of_detections) or (self.zone_of_detections[track_id] != zone)):
+    #             # If the track_id is not in the dictionary or the zone has changed
+    #             # Update the zone of detections for the track_id
+    #             self.zone_of_detections.update({track_id: zone})
+    #             return True
+    #     else:
+    #         # If the point is not in any zone, remove the track_id from the dictionary
+    #         if track_id in self.zone_of_detections:
+    #             del self.zone_of_detections[track_id]
+    #             return False
+    #     # If the point is not in any zone, return False
+    #         return False
 
 
     def zone_of_point(self, point):
