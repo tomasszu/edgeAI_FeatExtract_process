@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 class CheckDetection:
     def __init__(self, rows=None, cols=None,
@@ -16,6 +17,21 @@ class CheckDetection:
 
         self.zone_of_detections = {}
 
+        self.min_crop_size = 70  # Minimum size for the bounding box to be considered valid (in pixels)
+
+        # Cached entry spatio-temporal cache for detections, to avoid sending multiple crops of the same vehicle if it is standing still and tracker id resets (e.g. due to occlusion or tracker limitations)
+
+        self.use_stationary_surpression = True # Store True
+        self.cached_detections = {} #dict
+        """ {
+            "center": (cx, cy),
+            "bbox": [x1, y1, x2, y2],
+            "timestamp": time.monotonic()
+            }
+        """
+
+        self.max_idle_seconds = 300  # Maximum time for detection in cache (default 5 min)
+        
         # asserts that the points are of valid structure
         def _assert_point(name, point):
             assert isinstance(point, (tuple, list)), f"{name} must be a tuple or list"
@@ -56,6 +72,19 @@ class CheckDetection:
 
         return zones
     
+    def check_min_crop_size(self, bbox):
+        x1, y1, x2, y2 = bbox
+
+        width  = x2 - x1
+        height = y2 - y1
+
+        min_size = self.min_crop_size
+
+        if width < min_size or height < min_size:
+            return False
+
+        return True
+    
     def check_crop_zones(self, track_id, bbox):
         center = self.get_center(bbox)
         zone = self.zone_of_point(center)
@@ -67,34 +96,128 @@ class CheckDetection:
         last_zone, last_center = self.zone_of_detections.get(track_id, (None, None))
 
         if zone == -1:
-            if track_id in self.zone_of_detections and (np.linalg.norm(np.array(center)-np.array(last_center)) > threshold):
+            if track_id in self.zone_of_detections and \
+                self.get_point_distance(center, last_center) > threshold:
+                
+                # remove from zone tracking
                 del self.zone_of_detections[track_id]
+
+                # remove from stationary surpression spatial cache
+                self._purge_track_from_static_cache(track_id)
+
             return False
 
         if last_zone is None:
             self.zone_of_detections[track_id] = (zone, center)
             return True
-        elif last_zone != zone and (last_center is not None and np.linalg.norm(np.array(center)-np.array(last_center)) > threshold):
+        elif last_zone != zone and (last_center is not None and self.get_point_distance(center, last_center) > threshold):
             self.zone_of_detections[track_id] = (zone, center)
             return True
 
 
         return False
+    
+    def check_static_detection(self, track_id, bbox):
+        """ 
+        Checks if detection is a stationary vehicle whose tracker id reset.
+        Returns True if detection should be suppressed
+
+        """
+        now_time = time.monotonic()
+
+        # Hardcoded variables for stationary surpression, can be adjusted based on frame size, expectations etc.
+        close_center_thresh = 100 # center closeness in pixels for where we trigger the algorithm for stationary surpression
+        same_center_thresh = 10 # center closeness in pixels to consider it the same detection
+        iou_replace_floor = 0.6 # IOU threshold, below which we confirm different vehicle
+        iou_confirm_thresh = 0.95 # IOU threshold above which we confirm same detection, if same center thresh confirmed
+
+
+        # Remove expired cache entries
+        for cached_track_id in list(self.cached_detections.keys()):
+            if now_time - self.cached_detections[cached_track_id]["timestamp"] > self.max_idle_seconds:
+                del self.cached_detections[cached_track_id]
+
+        # Check against cached detections
+
+        center = self.get_center(bbox)
+
+        candidates = []
+
+        # Collect possible matches
+        for cached_track_id, entry in self.cached_detections.items():
+            center_distance = self.get_point_distance(center, entry["center"])
+            if center_distance < close_center_thresh:
+                iou = self.compute_iou(bbox, entry["bbox"])
+                candidates.append((cached_track_id, entry, center_distance, iou))
+        
+        if not candidates:
+            # No nearby detections -> insert fresh
+            self._insert_cache(track_id, center, bbox, now_time)
+            return False
+        
+        # Pick best match by IoU
+        cached_track_id, entry, center_distance, iou = max(candidates, key=lambda x: x[3])
+
+        # SAME TRACK
+        # If the center is close to a cached detection, check if it's not the same track_id, for which we dont care, we are looking for imposters
+        if track_id == cached_track_id:
+            # its the same track id, just update the cache timestamp, box and center
+            self.cached_detections[track_id]["timestamp"] = now_time
+            self.cached_detections[track_id]["center"] = center
+            self.cached_detections[track_id]["bbox"] = bbox
+            return False # allow
+        
+        # DIFFERENT TRACK (Investigation)
+        # its a different track id, but close to a cached detection, this is suspicious
+
+        # --- Static detection confirmation ---
+
+        if center_distance < same_center_thresh and iou > iou_confirm_thresh:
+            # very close centers and very high IOU, we can be quite confident its the same detection, likely with a reset track id
+            return True
+        
+        # --- Likely replacement (static detection ruled out) ---
+
+        if iou < iou_replace_floor:
+            # low IOU, likely a different detection entering that area
+            del self.cached_detections[cached_track_id] # remove the cached detection, as it is likely a different vehicle now
+            self._insert_cache(track_id, center, bbox, now_time)
+            return False # allow the new detection
+
+        # --- Uncertain case → allow the new, dont cache it and do NOT delete the cached (wait it out) ---
+
+        return False # allow the detection, but we are uncertain, so we keep the cached one for now, to see if the situation clarifies in the next frames
+        #(e.g. if the suspicious detection moves away or more detections appear etc.)              
+                
 
 
 
     def perform_checks(self, track_id, bbox):
         # Perform checks on the bounding box
 
+        #Sanity check
+
+        x1, y1, x2, y2 = bbox
+
+        assert x1 < x2, f"Invalid bbox: x1 ({x1}) should be less than x2 ({x2})"
+        assert y1 < y2, f"Invalid bbox: y1 ({y1}) should be less than y2 ({y2})"
+
+        # minimum crop size check
+        if not self.check_min_crop_size(bbox):
+            return False
+
+        # Zone check (if zones are defined, otherwise skip)
         if self.use_zones:
-            if self.check_crop_zones(track_id, bbox):
-                # If the bounding box is in a crop zone, return True
-                return True
-        else: 
-            # If there arent crop zones, we don't check crop zones
-            return True
-    # If the bounding box is not in the attention area or crop zone, return False
-        return False
+            # Only move forward if zone changed and vehicle moved > pixel threshold
+            if not self.check_crop_zones(track_id, bbox):
+                return False
+            
+        # Stationary surpression check
+        if self.use_stationary_surpression:
+            if self.check_static_detection(track_id, bbox):
+                return False
+                    
+        return True
 
     def verify_attention(self, bbox):
         
@@ -103,27 +226,6 @@ class CheckDetection:
         attention = self.is_point_in_attention(center_point)
 
         return attention
-    
-    # def check_crop_zones(self, track_id, bbox): ### OLD crop zones code, not using distance vector yet
-
-    #     center_point = self.get_center(bbox)
-
-    #     zone = self.zone_of_point(center_point)
-    #     if zone != -1:
-    #         # If the point is in a zone
-    #         if((track_id not in self.zone_of_detections) or (self.zone_of_detections[track_id] != zone)):
-    #             # If the track_id is not in the dictionary or the zone has changed
-    #             # Update the zone of detections for the track_id
-    #             self.zone_of_detections.update({track_id: zone})
-    #             return True
-    #     else:
-    #         # If the point is not in any zone, remove the track_id from the dictionary
-    #         if track_id in self.zone_of_detections:
-    #             del self.zone_of_detections[track_id]
-    #             return False
-    #     # If the point is not in any zone, return False
-    #         return False
-
 
     def zone_of_point(self, point):
         """
@@ -157,44 +259,135 @@ class CheckDetection:
         
         return bbox_center
     
-    # def is_point_in_attention(self,point):
+    def get_point_distance(self, point1, point2):
+        return np.linalg.norm(np.array(point1) - np.array(point2))
+    
+    def compute_iou(self, boxA, boxB):
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
 
-    #     vector1 = self.attention_vector1
-    #     vector2 = self.attention_vector2
+        inter_w = max(0, xB - xA)
+        inter_h = max(0, yB - yA)
+        inter = inter_w * inter_h
+
+        areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+        areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+        union = areaA + areaB - inter
+
+        return inter / union if union > 0 else 0
+    
+    def _insert_cache(self, track_id, center, bbox, timestamp):
+        self.cached_detections[track_id] = {
+            "center": center,
+            "bbox": bbox,
+            "timestamp": timestamp,
+        }
+
+    def _purge_track_from_static_cache(self, track_id):
+        # Remove any cache entries related to the given track_id
+        if track_id in self.cached_detections:
+            del self.cached_detections[track_id]
+
+
         
-    #     if vector1 is not None and vector2 is not None:
-    #         # Assuming vector1 and vector2 are represented by [x, y] points
-    #         vector1, sign1 = vector1
-    #         vector2, sign2 = vector2
-    #         v1p1, v1p2 = vector1
-    #         v2p1, v2p2 = vector2
-    #         # Calculate the cross product to determine if the point is on the same side of the line
-    #         if(sign1 == ">"):
-    #             cross_product = (v1p2[0]-v1p1[0])*(point[1] - v1p1[1]) - (v1p2[1] - v1p1[1]) *(point[0] - v1p1[0]) > 0
-    #         else:
-    #             cross_product = (v1p2[0]-v1p1[0])*(point[1] - v1p1[1]) - (v1p2[1] - v1p1[1]) *(point[0] - v1p1[0]) < 0
-    #         if(sign2 == ">"):
-    #             cross_product2 = (v2p2[0]-v2p1[0])*(point[1] - v2p1[1]) - (v2p2[1] - v2p1[1]) *(point[0] - v2p1[0]) > 0
-    #         else:
-    #             cross_product2 = (v2p2[0]-v2p1[0])*(point[1] - v2p1[1]) - (v2p2[1] - v2p1[1]) *(point[0] - v2p1[0]) < 0
-    #     elif(vector1 is not None):
-    #         vector1, sign1 = vector1
-    #         v1p1, v1p2 = vector1
-    #         if(sign1 == ">"):
-    #             cross_product = (v1p2[0]-v1p1[0])*(point[1] - v1p1[1]) - (v1p2[1] - v1p1[1]) *(point[0] - v1p1[0]) > 0
-    #         else:
-    #             cross_product = (v1p2[0]-v1p1[0])*(point[1] - v1p1[1]) - (v1p2[1] - v1p1[1]) *(point[0] - v1p1[0]) < 0
-    #         cross_product2 = True
-    #     else:
-    #         cross_product = True
-    #         cross_product2 = True
+if __name__ == "__main__":
+    print("Running CheckDetection sanity tests...")
 
-    #     cross_product = cross_product and cross_product2
+    # --------------------------------------------------
+    # Helper to build bbox
+    # --------------------------------------------------
+    def make_bbox(cx, cy, w=100, h=60):
+        return [
+            cx - w // 2,
+            cy - h // 2,
+            cx + w // 2,
+            cy + h // 2,
+        ]
 
-    #     # If the cross product is positive, the point is on the same side as the frame
-    #     return cross_product
-        
+    # --------------------------------------------------
+    # Create detector without zones for static tests
+    # --------------------------------------------------
+    cd = CheckDetection()
+    cd.use_zones = False  # isolate static logic
+    cd.max_idle_seconds = 2  # short expiry for testing
 
+    # --------------------------------------------------
+    # 1. First detection should be allowed + cached
+    # --------------------------------------------------
+    bbox1 = make_bbox(500, 500)
+    assert cd.check_static_detection(1, bbox1) is False
+    assert 1 in cd.cached_detections
+    print("Test 1 passed: first detection allowed + cached")
+
+    # --------------------------------------------------
+    # 2. Same track_id update should be allowed
+    # --------------------------------------------------
+    bbox1_shift = make_bbox(502, 502)
+    assert cd.check_static_detection(1, bbox1_shift) is False
+    print("Test 2 passed: same track_id updated")
+
+    # --------------------------------------------------
+    # 3. Reset track_id at same location → should suppress
+    # --------------------------------------------------
+    bbox_same = make_bbox(502, 502)
+    suppressed = cd.check_static_detection(2, bbox_same)
+    assert suppressed is True
+    print("Test 3 passed: reset track suppressed")
+
+    # --------------------------------------------------
+    # 4. Replacement case (low IoU)
+    # --------------------------------------------------
+    bbox_far = make_bbox(700, 700)
+    allowed = cd.check_static_detection(3, bbox_far)
+    assert allowed is False
+    assert 3 in cd.cached_detections
+    print("Test 4 passed: replacement allowed")
+
+    # --------------------------------------------------
+    # 5. Uncertain case (mid IoU)
+    # --------------------------------------------------
+    bbox_mid = make_bbox(510, 510)  # near original
+    allowed = cd.check_static_detection(4, bbox_mid)
+    assert allowed is False
+    print("Test 5 passed: uncertain case allowed")
+
+    # --------------------------------------------------
+    # 6. Expiry test
+    # --------------------------------------------------
+    time.sleep(3)
+    bbox_new = make_bbox(900, 900)
+    cd.check_static_detection(5, bbox_new)
+
+    # old entries should be expired
+    for tid in list(cd.cached_detections.keys()):
+        assert tid == 5
+    print("Test 6 passed: expiry works")
+
+    # --------------------------------------------------
+    # 7. Zone removal test
+    # --------------------------------------------------
+    cd_z = CheckDetection(
+        rows=2,
+        cols=2,
+        area_bottom_left=(0, 1000),
+        area_top_right=(1000, 0),
+    )
+
+    bbox_zone = make_bbox(250, 250)
+    cd_z.perform_checks(10, bbox_zone)
+    assert 10 in cd_z.zone_of_detections
+
+    # Move outside zone
+    bbox_out = make_bbox(2000, 2000)
+    cd_z.check_crop_zones(10, bbox_out)
+    assert 10 not in cd_z.zone_of_detections
+    assert 10 not in cd_z.cached_detections
+    print("Test 7 passed: zone exit purges cache")
+
+    print("\nAll tests passed successfully.")
 
         
 
