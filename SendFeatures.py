@@ -42,13 +42,14 @@ class SendFeatures:
         print("[MQTT] Message published, mid =", mid)
         pass
         
-    def __call__(self, track_id, cam_id, payload_image, features):
+    def __call__(self, track_id, cam_id, payload_image, features, bbox):
 
         features = features.flatten().tolist() # Convert to list for JSON serialization
         
         data = {
             'track_id': int(track_id),
             'cam_id': cam_id,
+            'bbox': bbox,
             'image': payload_image,
             'features': features,
             'model_name': self.model_name

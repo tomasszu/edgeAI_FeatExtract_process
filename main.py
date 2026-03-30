@@ -50,7 +50,7 @@ def inference_worker(sender):
         if item is None:
             print("[inference_worker] received shutdown pill")
             break
-        track_id, cam_id, image, payload_image = item
+        track_id, cam_id, image, payload_image, bbox = item
         print(f"[inference_worker] got item for track_id={track_id}, cam_id={cam_id}")
         try:
             features = extractor.get_feature(image)
@@ -58,7 +58,7 @@ def inference_worker(sender):
             print(f"[inference_worker] error during get_feature for track_id={track_id}, cam_id={cam_id}: {e}")
             continue
         try:
-            sender(track_id, cam_id, payload_image, features)
+            sender(track_id, cam_id, payload_image, features, bbox)
             print(f"[inference_worker] sent features for track_id={track_id}, cam_id={cam_id}")
         except Exception as e:
             print(f"[inference_worker] error while sending features for track_id={track_id}, cam_id={cam_id}: {e}")
@@ -106,7 +106,7 @@ def process_stream(cam_name, cam_params, args):
 
             if check.perform_checks(track_id, bbox):
                 print(f"[{cam_name}] enqueueing track_id={track_id}")
-                inference_queue.put((track_id, cam_id, image, payload_image))
+                inference_queue.put((track_id, cam_id, image, payload_image, bbox))
 
     print(f"{cam_name} thread exiting cleanly.")
 
