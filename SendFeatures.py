@@ -6,7 +6,7 @@ import uuid
 
 
 class SendFeatures:
-    def __init__(self, mqtt_broker="localhost", mqtt_port=1884, mqtt_topic="tomass/features", model_name="sp4_ep6_ft_noCEL_070126_26ep.engine"):
+    def __init__(self, mqtt_broker, mqtt_port, mqtt_topic, mqtt_certs_path="certs", cafile=None, certfile=None, keyfile=None, model_name="sp4_ep6_ft_noCEL_070126_26ep.engine"):
         self.mqtt_broker = mqtt_broker
         self.mqtt_port = mqtt_port
         self.mqtt_topic = mqtt_topic
@@ -15,8 +15,21 @@ class SendFeatures:
 
         # Setup MQTT client
         # Unique client ID per instance
-        client_id = f"receiver-{uuid.uuid4()}"
+        client_id = f"sender-{uuid.uuid4()}"
         self.client = mqtt.Client(client_id=client_id)
+
+        # TLS (if provided)
+        if cafile and certfile and keyfile:
+            self.client.tls_set(
+                ca_certs=f"{mqtt_certs_path}/{cafile}",
+                certfile=f"{mqtt_certs_path}/{certfile}",
+                keyfile=f"{mqtt_certs_path}/{keyfile}"
+            )
+        else:
+            print("[WARN] TLS not fully configured, skipping TLS setup")
+
+        #because of self signed certs
+        self.client.tls_insecure_set(True)
 
         self.client.on_connect = self.on_connect
         self.client.on_publish = self.on_publish

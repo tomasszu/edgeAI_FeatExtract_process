@@ -14,9 +14,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_conf', type=str, default='inputs_conf.yaml',
                         help='Path to the input configuration file, that contains crop zones and mqtt topics for receiving info from each camera')
-    parser.add_argument('--mqtt_broker', type=str, default='localhost', help='Address of the MQTT broker')
-    parser.add_argument('--mqtt_port', type=int, default=1884, help='Port of the MQTT broker')
-    parser.add_argument('--mqtt_topic', type=str, default="tomass/features", help='mqtt topic to send the detections to.')
+    parser.add_argument('--mqtt_broker', type=str, default='edgejet2.edi.lv', help='Address of the MQTT broker')
+    parser.add_argument('--mqtt_port', type=int, default=8884, help='Port of the MQTT broker')
+    parser.add_argument('--mqtt_send_topic', type=str, default="reid-vehicle-analysis", help='mqtt topic to send the detections to.')
+    parser.add_argument('--mqtt_certs_path', type=str, default="/certs", help='Path to the MQTT certificates')
+    parser.add_argument('--cafile', type=str, default=None, help='CA certificate filename (in mqtt_certs_path) for MQTT TLS connection')
+    parser.add_argument('--certfile', type=str, default=None, help='Client certificate filename (in mqtt_certs_path) for MQTT TLS connection')
+    parser.add_argument('--keyfile', type=str, default=None, help='Client key filename (in mqtt_certs_path) for MQTT TLS connection')
     parser.add_argument('--model_name', type=str, default="sp4_ep6_ft_noCEL_070126_26ep.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
     return parser.parse_args()
 
@@ -73,25 +77,13 @@ def inference_worker(sender):
 
     print("Inference worker exiting cleanly.")
 
-# ---------- per-camera loop ----------
-def process_stream(cam_name, cam_params, args):
-    print(f"Starting processing thread for {cam_name}")
-
-    receiver = ReceiveDetectionsService(
-        mqtt_broker=args.mqtt_broker,
-        mqtt_port=args.mqtt_port,
-        mqtt_topic=cam_params["mqtt_topic"]
-    )
-
-    check = CheckDetection(
-        cam_params["crop_zone_rows"],
-        cam_params["crop_zone_cols"],
-        tuple(cam_params["crop_zone_area_bottom_left"]),
-        tuple(cam_params["crop_zone_area_top_right"])
-    )
+# ---------- mqtt processing loop ----------
+def process_stream_shared(receiver, cam_map):
+    print("[INPUT] Starting MQTT processing loop")
 
     while not shutdown_event.is_set():
         new_images = receiver.get_pending_images()
+
         if not new_images:
             # no pending images — avoid hot loop
             time.sleep(0.01)
@@ -102,52 +94,100 @@ def process_stream(cam_name, cam_params, args):
             track_id = entry["track_id"]
             bbox = entry["bbox"]
             payload_image = entry["payload_image"]
-            cam_id = cam_params.get("cam_id", 0)
+            cam_id = entry.get("cam_id")  # MUST come from MQTT
+
+            if cam_id not in cam_map:
+                print(f"[WARN] Unknown cam_id={cam_id}, skipping")
+                continue
+
+            cam_data = cam_map[cam_id]
+            check = cam_data["check"]
+            cam_name = cam_data["name"]
 
             if check.perform_checks(track_id, bbox):
                 print(f"[{cam_name}] enqueueing track_id={track_id}")
                 inference_queue.put((track_id, cam_id, image, payload_image, bbox))
 
-    print(f"{cam_name} thread exiting cleanly.")
+# ---------- helper functions ----------
+
+#Per cam state and checks builder
+def build_camera_map(config):
+    cam_map = {}
+
+    for cam_name, cam_params in config["streams"].items():
+        cam_id = cam_params["cam_id"]
+
+        cam_map[cam_id] = {
+            "name": cam_name,
+            "check": CheckDetection(
+                cam_params["crop_zone_rows"],
+                cam_params["crop_zone_cols"],
+                tuple(cam_params["crop_zone_area_bottom_left"]),
+                tuple(cam_params["crop_zone_area_top_right"])
+            )
+        }
+
+    return cam_map
 
 # ---------- main ----------
 def main(cons_args):
     with open(cons_args.input_conf, "r") as f:
         config = yaml.safe_load(f)
 
-    sender = SendFeatures(mqtt_broker=args.mqtt_broker, mqtt_port=args.mqtt_port,
-                              mqtt_topic=args.mqtt_topic, model_name=args.model_name)
+    cam_map = build_camera_map(config)
 
-    # Start ONE inference worker (non-daemon so it won't be abruptly killed)
-    worker = threading.Thread(target=inference_worker, args=(sender,), name="inference_worker") # komats aiz sender, lai but args plural
+    # assume all topics are the same → take first
+    any_cam = next(iter(config["streams"].values()))
+    receive_topic = any_cam["mqtt_topic"]
+
+    receiver = ReceiveDetectionsService(
+        mqtt_broker=cons_args.mqtt_broker,
+        mqtt_port=cons_args.mqtt_port,
+        mqtt_certs_path=cons_args.mqtt_certs_path,
+        cafile=cons_args.cafile,
+        certfile=cons_args.certfile,
+        keyfile=cons_args.keyfile,
+        mqtt_topic=receive_topic
+    )
+
+    sender = SendFeatures(
+        mqtt_broker=cons_args.mqtt_broker,
+        mqtt_port=cons_args.mqtt_port,
+        mqtt_topic=cons_args.mqtt_send_topic,
+        mqtt_certs_path=cons_args.mqtt_certs_path,
+        cafile=cons_args.cafile,
+        certfile=cons_args.certfile,
+        keyfile=cons_args.keyfile,
+        model_name=cons_args.model_name
+    )
+
+    # inference worker (keep as is)
+    worker = threading.Thread(
+        target=inference_worker,
+        args=(sender,),
+        name="inference_worker"
+    )
     worker.start()
 
-    cam_threads = []
-    for cam_name, cam_params in config["streams"].items():
-        t = threading.Thread(
-            target=process_stream,
-            args=(cam_name, cam_params, cons_args),
-            name=cam_name
-        )
-        t.start()
-        cam_threads.append(t)
+    # single input thread now
+    input_thread = threading.Thread(
+        target=process_stream_shared,
+        args=(receiver, cam_map),
+        name="mqtt_input"
+    )
+    input_thread.start()
 
-    # Main thread waits for shutdown signal
     try:
         while not shutdown_event.is_set():
-            # Use a short sleep rather than signal.pause, so this works in environments
-            # where signal.pause isn't available or behaves differently (Docker, etc.)
             time.sleep(0.5)
     except KeyboardInterrupt:
         shutdown_event.set()
         inference_queue.put(None)
 
-    print("Shutdown requested: joining camera threads")
-    # Ask camera threads to finish (they check shutdown_event)
-    for t in cam_threads:
-        t.join(timeout=5)
+    print("Shutdown requested")
 
-    # Ensure worker gets shutdown pill (if one not already sent)
+    input_thread.join(timeout=5)
+
     inference_queue.put(None)
     worker.join(timeout=5)
 
