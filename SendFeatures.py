@@ -66,7 +66,7 @@ class SendFeatures:
             'image': payload_image,
             'features': features,
             'model_name': self.model_name,
-            'timestamp': int(time.time() * 1000)
+            'timestamp_ns': time.time_ns()
         }
 
         self.send_over_mqtt(data)
