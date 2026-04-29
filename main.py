@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument('--cafile', type=str, default=None, help='CA certificate filename (in mqtt_certs_path) for MQTT TLS connection')
     parser.add_argument('--certfile', type=str, default=None, help='Client certificate filename (in mqtt_certs_path) for MQTT TLS connection')
     parser.add_argument('--keyfile', type=str, default=None, help='Client key filename (in mqtt_certs_path) for MQTT TLS connection')
-    parser.add_argument('--model_name', type=str, default="sp4_ep6_ft_noCEL_070126_26ep.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
+    parser.add_argument('--model_name', type=str, default="sp4_ep6_ft_noCEL_070126_2jet.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
     return parser.parse_args()
 
 # ---------- globals and shutdown ----------
