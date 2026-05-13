@@ -34,7 +34,6 @@ class CheckDetection:
 
         # Adaptive fallback zones
         self.adaptive_zones = False
-        self.zone_expand_factor = 1.2
         
         # asserts that the points are of valid structure
         def _assert_point(name, point):
@@ -93,6 +92,19 @@ class CheckDetection:
         center = self.get_center(bbox)
         zone = self.zone_of_point(center)
 
+        # Adaptive expansion for unknown cameras
+        if zone == -1 and self.adaptive_zones:
+
+            self.update_zone_bounds_if_needed(bbox)
+
+            # retry after expansion
+            zone = self.zone_of_point(center)
+            if zone == -1:
+                print(
+                    f"[CheckDetection] WARNING: "
+                    f"adaptive expansion failed for bbox={bbox}"
+                )
+
         # Only move forward if zone changed and vehicle moved > pixel threshold
         # shis ir lai vehicle nelēkātu starp zonām, ja tā stāv uz robežas (np linalg norm ļauj mums dabūt euclidean distance starp diviem punktiem)
         threshold = 10  # pixels, adjust based on your frame resolution
@@ -138,24 +150,30 @@ class CheckDetection:
         new_x_max = current_x_max
         new_y_min = current_y_min
 
+        def round_up(value, base=500):
+            return int(base * np.ceil(value / base))
+
+        def round_down(value, base=500):
+            return int(base * np.floor(value / base))
+
         # Right overflow
         if x2 > current_x_max:
-            new_x_max = int(x2 * self.zone_expand_factor)
+            new_x_max = round_up(x2)
             out_of_bounds = True
 
         # Bottom overflow
         if y2 > current_y_max:
-            new_y_max = int(y2 * self.zone_expand_factor)
+            new_y_max = round_up(y2)
             out_of_bounds = True
 
         # Left overflow
         if x1 < current_x_min:
-            new_x_min = int(x1 * self.zone_expand_factor)
+            new_x_min = round_down(x1)
             out_of_bounds = True
 
         # Top overflow
         if y1 < current_y_min:
-            new_y_min = int(y1 * self.zone_expand_factor)
+            new_y_min = round_down(y1)
             out_of_bounds = True
 
         if not out_of_bounds:
@@ -174,7 +192,7 @@ class CheckDetection:
         # Regenerate zones
         self.zones = self._generate_zones()
 
-        # Wipe state completely because zone topology changed
+        # Wipe state completely because topology changed
         self.zone_of_detections.clear()
         self.cached_detections.clear()
 
@@ -264,10 +282,6 @@ class CheckDetection:
 
         assert x1 < x2, f"Invalid bbox: x1 ({x1}) should be less than x2 ({x2})"
         assert y1 < y2, f"Invalid bbox: y1 ({y1}) should be less than y2 ({y2})"
-
-        # Adaptive zone resizing for unknown cameras
-        if self.adaptive_zones:
-            self.update_zone_bounds_if_needed(bbox)
 
         # minimum crop size check
         if not self.check_min_crop_size(bbox):
