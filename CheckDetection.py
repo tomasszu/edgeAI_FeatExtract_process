@@ -31,6 +31,10 @@ class CheckDetection:
         """
 
         self.max_idle_seconds = max_idle_seconds  # Maximum time for detection in cache (default 5 min)
+
+        # Adaptive fallback zones
+        self.adaptive_zones = False
+        self.zone_expand_factor = 1.2
         
         # asserts that the points are of valid structure
         def _assert_point(name, point):
@@ -117,6 +121,65 @@ class CheckDetection:
 
         return False
     
+    def update_zone_bounds_if_needed(self, bbox):
+
+        if not self.use_zones:
+            return
+
+        x1, y1, x2, y2 = bbox
+
+        current_x_min, current_y_max = self.area_bottom_left
+        current_x_max, current_y_min = self.area_top_right
+
+        out_of_bounds = False
+
+        new_x_min = current_x_min
+        new_y_max = current_y_max
+        new_x_max = current_x_max
+        new_y_min = current_y_min
+
+        # Right overflow
+        if x2 > current_x_max:
+            new_x_max = int(x2 * self.zone_expand_factor)
+            out_of_bounds = True
+
+        # Bottom overflow
+        if y2 > current_y_max:
+            new_y_max = int(y2 * self.zone_expand_factor)
+            out_of_bounds = True
+
+        # Left overflow
+        if x1 < current_x_min:
+            new_x_min = int(x1 * self.zone_expand_factor)
+            out_of_bounds = True
+
+        # Top overflow
+        if y1 < current_y_min:
+            new_y_min = int(y1 * self.zone_expand_factor)
+            out_of_bounds = True
+
+        if not out_of_bounds:
+            return
+
+        print(
+            "[CheckDetection] Adaptive zone expansion triggered:",
+            f"old_bounds=({self.area_bottom_left}, {self.area_top_right})",
+            f"new_bounds=(({new_x_min}, {new_y_max}), ({new_x_max}, {new_y_min}))"
+        )
+
+        # Apply new bounds
+        self.area_bottom_left = (new_x_min, new_y_max)
+        self.area_top_right = (new_x_max, new_y_min)
+
+        # Regenerate zones
+        self.zones = self._generate_zones()
+
+        # Wipe state completely because zone topology changed
+        self.zone_of_detections.clear()
+        self.cached_detections.clear()
+
+        print("[CheckDetection] Cleared cached state after adaptive resize")
+    
     def check_static_detection(self, track_id, bbox):
         """ 
         Checks if detection is a stationary vehicle whose tracker id reset.
@@ -201,6 +264,10 @@ class CheckDetection:
 
         assert x1 < x2, f"Invalid bbox: x1 ({x1}) should be less than x2 ({x2})"
         assert y1 < y2, f"Invalid bbox: y1 ({y1}) should be less than y2 ({y2})"
+
+        # Adaptive zone resizing for unknown cameras
+        if self.adaptive_zones:
+            self.update_zone_bounds_if_needed(bbox)
 
         # minimum crop size check
         if not self.check_min_crop_size(bbox):

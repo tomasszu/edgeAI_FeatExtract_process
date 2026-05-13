@@ -31,6 +31,9 @@ def parse_args():
 inference_queue = Queue() 
 shutdown_event = threading.Event()
 
+# Will get filled if we get data from unknown cam_ids with default crop zones (e.g. full frame)
+unknown_cam_map = {}
+
 def signal_handler(sig, frame):
     print("Shutdown signal received, cleaning up...")
     shutdown_event.set()
@@ -97,10 +100,33 @@ def process_stream_shared(receiver, cam_map):
             cam_id = entry.get("cam_id")  # MUST come from MQTT
 
             if cam_id not in cam_map:
-                print(f"[WARN] Unknown cam_id={cam_id}, skipping")
-                continue
 
-            cam_data = cam_map[cam_id]
+                if cam_id not in unknown_cam_map:
+
+                    print(f"[WARN] Unknown cam_id={cam_id}, creating adaptive fallback checker")
+
+                    # Initialized with full frame crop zone
+                    # Based off of Fisheye camera framesize
+                    # adaptive zones for dynamic adjustment if bbox still from an even bigger frame
+                    fallback_check = CheckDetection(
+                        rows=24,
+                        cols=24,
+                        area_bottom_left=(0, 2048),
+                        area_top_right=(2048, 0)
+                    )
+
+                    fallback_check.adaptive_zones = True
+
+                    unknown_cam_map[cam_id] = {
+                        "name": f"{cam_id}",
+                        "check": fallback_check
+                    }
+
+                cam_data = unknown_cam_map[cam_id]
+
+            else:
+                cam_data = cam_map[cam_id]
+
             check = cam_data["check"]
             cam_name = cam_data["name"]
 
