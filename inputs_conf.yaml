@@ -42,8 +42,8 @@ streams:
 
   camera_6:
     mqtt_topic: "reid-vehicle-detection"
-    cam_id: 'edgejetcam1.edi.lv'
+    cam_id: 'edgejetcam4.edi.lv'
     crop_zone_rows: 4
     crop_zone_cols: 4
-    crop_zone_area_bottom_left: [150, 900]
-    crop_zone_area_top_right: [1800, 270]
+    crop_zone_area_bottom_left: [1810, 2250]
+    crop_zone_area_top_right: [2560, 250]
