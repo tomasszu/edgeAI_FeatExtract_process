@@ -109,10 +109,10 @@ def process_stream_shared(receiver, cam_map):
                     # Based off of Fisheye camera framesize
                     # adaptive zones for dynamic adjustment if bbox still from an even bigger frame
                     fallback_check = CheckDetection(
-                        rows=24,
-                        cols=24,
-                        area_bottom_left=(0, 2048),
-                        area_top_right=(2048, 0)
+                        rows=32,
+                        cols=32,
+                        area_bottom_left=(0, 2560),
+                        area_top_right=(2560, 0)
                     )
 
                     fallback_check.adaptive_zones = True
