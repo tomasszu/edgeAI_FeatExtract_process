@@ -331,6 +331,9 @@ docker run --rm -d \
 
 # Detection Filtering and Crop Zones
 
+<video controls src="assets/output (online-video-cutter.com) (1).mp4" title="Crop zones example. Credits to the AI CIty challange dataset."></video>
+** Credits to the AI CIty challange dataset.
+
 Before feature extraction, incoming detections pass through a filtering stage (`CheckDetection`) to reduce redundant or low-quality crops.
 
 The filtering logic improves:
@@ -367,6 +370,8 @@ This avoids extracting features from:
 ## Crop Zone System
 
 Each camera frame can be divided into a configurable grid of spatial zones.
+
+![alt text](<assets/Tomass_Zutis_Multi-Step Object Re-Identification on Edge Devices A Pipeline for Vehicle Re-Identification 1_html_93981589e99dd39c.png>)
 
 Example:
 
