@@ -293,7 +293,7 @@ docker run --rm -d \
 ## EdgeJet 3
 
 ```sh id="nq7ih7"
-docker run --rm \
+docker run --rm -d \
     --runtime nvidia \
     --network host \
     --name tomass_feature_extract \
