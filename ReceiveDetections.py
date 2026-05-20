@@ -7,13 +7,22 @@ import time
 import uuid
 
 class ReceiveDetectionsService:
-    def __init__(self, mqtt_broker="localhost", mqtt_port=1884, mqtt_topic="tomass/detections"):
+    def __init__(self, mqtt_broker, mqtt_port, mqtt_topic, mqtt_certs_path="certs", cafile=None, certfile=None, keyfile=None):
+        self.mqtt_broker = mqtt_broker
+        self.mqtt_port = mqtt_port
         self.mqtt_topic = mqtt_topic
         self.queue = []  # stores (track_id, bbox, timestamp, image_np)
 
         # Unique client ID per instance
         client_id = f"receiver-{uuid.uuid4()}"
         self.client = mqtt.Client(client_id=client_id)
+
+        if cafile:
+            self.client.tls_set(
+                ca_certs=f"{mqtt_certs_path}/{cafile}",
+                certfile=f"{mqtt_certs_path}/{certfile}",
+                keyfile=f"{mqtt_certs_path}/{keyfile}"
+            )
 
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -47,6 +56,7 @@ class ReceiveDetectionsService:
             image_np = self._decode_crop_np(payload["image"])
             self.queue.append({
                 "track_id": payload["track_id"],
+                "cam_id": payload["cam_id"],
                 "bbox": payload["bbox"],
                 "image": image_np,
                 "payload_image": payload["image"]
