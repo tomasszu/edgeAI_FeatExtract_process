@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument('--certfile', type=str, default=None, help='Client certificate filename (in mqtt_certs_path) for MQTT TLS connection')
     parser.add_argument('--keyfile', type=str, default=None, help='Client key filename (in mqtt_certs_path) for MQTT TLS connection')
     parser.add_argument('--model_name', type=str, default="sp4_ep6_ft_noCEL_070126_2jet.engine", help='Descriptor for metadata to send with the features, e.g. model name or version')
+    parser.add_argument('--min_crop_side', type=int, default=70, help='Minimum size for a bounding box side (h or w in pixels) to be considered valid for feature extraction')
     return parser.parse_args()
 
 # ---------- globals and shutdown ----------
@@ -81,7 +82,7 @@ def inference_worker(sender):
     print("Inference worker exiting cleanly.")
 
 # ---------- mqtt processing loop ----------
-def process_stream_shared(receiver, cam_map):
+def process_stream_shared(receiver, cam_map, min_crop_side):
     print("[INPUT] Starting MQTT processing loop")
 
     while not shutdown_event.is_set():
@@ -112,7 +113,8 @@ def process_stream_shared(receiver, cam_map):
                         rows=32,
                         cols=32,
                         area_bottom_left=(0, 2560),
-                        area_top_right=(2560, 0)
+                        area_top_right=(2560, 0),
+                        min_crop_side=min_crop_side
                     )
 
                     fallback_check.adaptive_zones = True
@@ -137,7 +139,7 @@ def process_stream_shared(receiver, cam_map):
 # ---------- helper functions ----------
 
 #Per cam state and checks builder
-def build_camera_map(config):
+def build_camera_map(config, min_crop_side):
     cam_map = {}
 
     for cam_name, cam_params in config["streams"].items():
@@ -149,7 +151,8 @@ def build_camera_map(config):
                 cam_params["crop_zone_rows"],
                 cam_params["crop_zone_cols"],
                 tuple(cam_params["crop_zone_area_bottom_left"]),
-                tuple(cam_params["crop_zone_area_top_right"])
+                tuple(cam_params["crop_zone_area_top_right"]),
+                min_crop_side=min_crop_side
             )
         }
 
@@ -160,7 +163,7 @@ def main(cons_args):
     with open(cons_args.input_conf, "r") as f:
         config = yaml.safe_load(f)
 
-    cam_map = build_camera_map(config)
+    cam_map = build_camera_map(config, cons_args.min_crop_side)
 
     # assume all topics are the same → take first
     any_cam = next(iter(config["streams"].values()))
@@ -198,7 +201,7 @@ def main(cons_args):
     # single input thread now
     input_thread = threading.Thread(
         target=process_stream_shared,
-        args=(receiver, cam_map),
+        args=(receiver, cam_map, cons_args.min_crop_side),
         name="mqtt_input"
     )
     input_thread.start()

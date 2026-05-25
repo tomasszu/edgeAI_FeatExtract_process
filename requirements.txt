@@ -1,5 +1,6 @@
 # certifi==2025.4.26
 # charset-normalizer==3.4.2
+cbor2
 # filelock==3.13.1
 # fsspec==2024.6.1
 # huggingface-hub==0.30.2

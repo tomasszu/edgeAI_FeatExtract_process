@@ -3,7 +3,7 @@ import time
 
 class CheckDetection:
     def __init__(self, rows=None, cols=None,
-                 area_bottom_left = None, area_top_right=None, use_stationary_surpression=True, max_idle_seconds=300):
+                 area_bottom_left = None, area_top_right=None, use_stationary_surpression=True, max_idle_seconds=300, min_crop_side=70):
 
         self.zones = []
 
@@ -17,7 +17,7 @@ class CheckDetection:
 
         self.zone_of_detections = {}
 
-        self.min_crop_size = 70  # Minimum size for the bounding box to be considered valid (in pixels)
+        self.min_crop_side = min_crop_side  # Minimum size for a bounding box side (h or w in pixels) to be considered valid
 
         # Cached entry spatio-temporal cache for detections, to avoid sending multiple crops of the same vehicle if it is standing still and tracker id resets (e.g. due to occlusion or tracker limitations)
 
@@ -81,7 +81,7 @@ class CheckDetection:
         width  = x2 - x1
         height = y2 - y1
 
-        min_size = self.min_crop_size
+        min_size = self.min_crop_side
 
         if width < min_size or height < min_size:
             return False

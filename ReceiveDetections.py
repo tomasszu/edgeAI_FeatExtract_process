@@ -1,17 +1,30 @@
+import time
+import uuid
 import json
+
 import cv2
+import cbor2
 import numpy as np
 import paho.mqtt.client as mqtt
 from PIL import Image
-import time
-import uuid
+
 
 class ReceiveDetectionsService:
-    def __init__(self, mqtt_broker, mqtt_port, mqtt_topic, mqtt_certs_path="certs", cafile=None, certfile=None, keyfile=None):
+    def __init__(
+        self,
+        mqtt_broker,
+        mqtt_port,
+        mqtt_topic,
+        mqtt_certs_path="certs",
+        cafile=None,
+        certfile=None,
+        keyfile=None
+    ):
+
         self.mqtt_broker = mqtt_broker
         self.mqtt_port = mqtt_port
         self.mqtt_topic = mqtt_topic
-        self.queue = []  # stores (track_id, bbox, timestamp, image_np)
+        self.queue = []
 
         # Unique client ID per instance
         client_id = f"receiver-{uuid.uuid4()}"
@@ -44,54 +57,194 @@ class ReceiveDetectionsService:
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             print(f"[MQTT] Receiver for {self.mqtt_topic} connected successfully")
-            client.subscribe(self.mqtt_topic)  # ← THIS WAS MISSING
+            client.subscribe(self.mqtt_topic)
             self.connected = True
         else:
             print(f"[MQTT] Connection failed with code {rc}")
 
     def _on_message(self, client, userdata, msg):
-        try:
-            payload = json.loads(msg.payload.decode('utf-8'))
 
-            image_np = self._decode_crop_np(payload["image"])
-            self.queue.append({
-                "track_id": payload["track_id"],
-                "cam_id": payload["cam_id"],
-                "bbox": payload["bbox"],
-                "image": image_np,
-                "payload_image": payload["image"]
-            })
-            print(f"[MQTT] Received and decoded crop for track_id {payload['track_id']}")
-            self.msg_count += 1
-            print(f"[MQTT] Total messages received: {self.msg_count}")
+        try:
+
+            payload = msg.payload
+
+            # --------------------------------------------------
+            # OLD JSON MESSAGES
+            # --------------------------------------------------
+
+            try:
+
+                json_payload = json.loads(
+                    payload.decode("utf-8")
+                )
+
+                # old detection metadata messages
+                # can safely be ignored
+                if isinstance(json_payload, list):
+
+                    print("[MQTT] JSON detection metadata received")
+                    return
+
+            except Exception:
+                pass
+
+            # --------------------------------------------------
+            # NEW CBOR CROP_BATCH MESSAGES
+            # --------------------------------------------------
+
+            data = cbor2.loads(payload)
+
+            if not isinstance(data, dict):
+                return
+
+            if data.get("type") != "crop_batch":
+                return
+
+            cam_id = data.get("cam")
+            items = data.get("items", [])
+
+            for item in items:
+
+                # ----------------------------------------------
+                # CLASS FILTER
+                # ----------------------------------------------
+
+                cls_name = str(
+                    item.get("cls", "")
+                ).lower()
+
+                # car, motorcycle, bus, truck
+                allowed_classes = [
+                    "car",
+                    "motorcycle",
+                    "bus",
+                    "truck"
+                ]
+
+                if cls_name not in allowed_classes:
+                    continue
+
+                # ----------------------------------------------
+                # RAW JPEG BYTES
+                # ----------------------------------------------
+
+                img_bytes = item.get("img")
+
+                if not isinstance(
+                    img_bytes,
+                    (bytes, bytearray)
+                ):
+                    continue
+
+                # ----------------------------------------------
+                # PRESERVE OLD FORMAT
+                # ----------------------------------------------
+
+                # old implementation expected:
+                # payload["image"] -> HEX STRING
+
+                encoded_crop = img_bytes.hex()
+
+                # decode exactly the same way as before
+                image_np = self._decode_crop_np(encoded_crop)
+
+                # ----------------------------------------------
+                # KEEP OUTPUT FORMAT IDENTICAL
+                # ----------------------------------------------
+
+                self.queue.append({
+                    "track_id": item.get("track_id"),
+                    "cam_id": cam_id,
+                    "bbox": item.get("bbox"),
+                    "image": image_np,
+                    "payload_image": encoded_crop
+                })
+
+                print(
+                    f"[MQTT] Received and decoded "
+                    f"crop for track_id "
+                    f"{item.get('track_id')}"
+                )
+
+                self.msg_count += 1
+
+                print(
+                    f"[MQTT] Total messages received: "
+                    f"{self.msg_count}"
+                )
+
         except Exception as e:
-            print(f"[ERROR] Failed to process MQTT message: {e}")
+
+            print(
+                f"[ERROR] Failed to process "
+                f"MQTT message: {e}"
+            )
 
     def on_disconnect(self, client, userdata, rc):
         print(f"[MQTT] Disconnected (rc={rc}), reconnecting...")
 
+    # ======================================================
+    # IMAGE DECODERS
+    # ======================================================
+
     def _decode_crop_np(self, encoded_crop):
+
         crop_bytes = bytes.fromhex(encoded_crop)
-        np_arr = np.frombuffer(crop_bytes, dtype=np.uint8)
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        np_arr = np.frombuffer(
+            crop_bytes,
+            dtype=np.uint8
+        )
+
+        image = cv2.imdecode(
+            np_arr,
+            cv2.IMREAD_COLOR
+        )
+
         if image is None:
-            raise ValueError("Failed to decode image from base64")
+            raise ValueError(
+                "Failed to decode image"
+            )
+
         return image
-    
+
     def _decode_crop_pil(self, encoded_crop):
+
         crop_bytes = bytes.fromhex(encoded_crop)
-        np_arr = np.frombuffer(crop_bytes, dtype=np.uint8)
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        np_arr = np.frombuffer(
+            crop_bytes,
+            dtype=np.uint8
+        )
+
+        image = cv2.imdecode(
+            np_arr,
+            cv2.IMREAD_COLOR
+        )
 
         if image is None:
-            raise ValueError("Failed to decode image from PNG bytes")
+            raise ValueError(
+                "Failed to decode image"
+            )
 
-        # Convert OpenCV BGR → PIL RGB
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image_rgb = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+
         return Image.fromarray(image_rgb)
 
+    # ======================================================
+    # QUEUE ACCESS
+    # ======================================================
+
     def get_pending_images(self):
-        """Retrieve and clear the queue of received crops"""
+        """
+        Retrieve and clear the queue
+        of received crops.
+        """
+
         data = self.queue[:]
         self.queue.clear()
+
         return data
