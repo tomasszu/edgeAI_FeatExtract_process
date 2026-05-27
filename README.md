@@ -14,6 +14,7 @@ Its responsibilities are:
 
 * Receive cropped vehicle detections over MQTT
 * Decode image MQTT payloads
+* Filter unsupported object classes
 * Run feature extraction inference
 * Send extracted feature vectors and metadata over MQTT
 
@@ -23,27 +24,67 @@ Its responsibilities are:
 
 # Input
 
-The container subscribes to an MQTT topic and expects JSON messages with the following structure:
+The container subscribes to an MQTT topic and supports two message formats:
+
+* Legacy JSON messages
+* New CBOR-encoded crop_batch messages (current production format)
+
+DEMO Input Format (CBOR)
+
+The partenrs (Dimitrios) detection system now publishes CBOR2 encoded MQTT messages with the following structure:
 
 ```json
 {
-    "track_id": 15,
-    "cam_id": "cam_1",
-    "bbox": [523, 214, 702, 412],
-    "image": "<hex_encoded_jpg_or_png>"
+    "type": "crop_batch",
+    "cam": "cam_1",
+    "items": [
+        {
+            "track_id": 15,
+            "cls": "car",
+            "bbox": [523, 214, 702, 412],
+            "img": <raw_jpeg_bytes>
+        }
+    ]
 }
 ```
 
-## Input Fields
+## CBOR Input Fields
 
-| Field      | Type      | Description                                  |
-| ---------- | --------- | -------------------------------------------- |
-| `track_id` | integer   | Tracking ID assigned by the detector/tracker |
-| `cam_id`   | string    | Unique camera identifier                     |
-| `bbox`     | list[int] | Bounding box in `[x1, y1, x2, y2]` format    |
-| `image`    | string    | Hex-encoded compressed image crop            |
+| Field   | Type   | Description                 |
+| ------- | ------ | --------------------------- |
+| `type`  | string | Message type (`crop_batch`) |
+| `cam`   | string | Camera identifier           |
+| `items` | list   | Batch of detections         |
+
+## Detection Item Fields
+
+| Field      | Type      | Description                              |
+| ---------- | --------- | ---------------------------------------- |
+| `track_id` | integer   | Tracking ID assigned by detector/tracker |
+| `cls`      | string    | Object class                             |
+| `bbox`     | list[int] | Bounding box `[x1, y1, x2, y2]`          |
+| `img`      | bytes     | Raw JPEG crop bytes                      |
 
 ---
+
+## Object Class Filtering
+
+The upstream detection system currently does not filter object classes before publishing detections.
+
+Because of this, filtering is now implemented inside the Feature Extraction container upon MQTT message reception.
+
+Currently accepted classes:
+
+    car
+    motorcycle
+    bus
+    truck
+
+All other classes are ignored before inference.
+
+Example log:
+
+    [MQTT] Ignoring detection of class: person
 
 ## Image Encoding
 
@@ -55,6 +96,18 @@ The `image` field contains:
 
 The container decodes this field internally into an OpenCV image (`numpy.ndarray`) before inference.
 
+## Legacy JSON Format
+
+The container still supports the older JSON-based format for backwards compatibility:
+
+```json
+{
+    "track_id": 15,
+    "cam_id": "cam_1",
+    "bbox": [523, 214, 702, 412],
+    "image": "<hex_encoded_jpg_or_png>"
+}
+```
 ---
 
 ## Expected Input Workflow
@@ -258,6 +311,20 @@ The configuration defines:
 
 ---
 
+### Detection Filtering Configuration
+
+| Argument          | Description                                                                 |
+| ----------------- | --------------------------------------------------------------------------- |
+| `--min_crop_side` | Minimum bounding box width/height in pixels required for feature extraction |
+
+Default:
+
+    70 pixels
+
+This parameter is passed into the CheckDetection filtering stage and rejects detections where either bounding box side is too small.
+
+---
+
 ## Model
 
 | Argument       | Description                            |
@@ -278,14 +345,15 @@ docker run --rm -d \
     --network host \
     --name tomass_feature_extract \
     -v $(pwd):/certs \
-    ghcr.io/tomasszu/reid_processes_feature_extract:jetson_2jet_latest \
+    ghcr.io/tomasszu/reid_processes_feature_extract:jetson_latest \
     --mqtt_broker edgejet2vpn.edi.lv \
     --mqtt_port 8884 \
     --mqtt_send_topic reid-vehicle-analysis \
     --mqtt_certs_path /certs \
     --cafile ca-cert \
     --certfile client.crt \
-    --keyfile client.key
+    --keyfile client.key \
+    --min_crop_side 70
 ```
 
 ---
@@ -305,7 +373,8 @@ docker run --rm -d \
     --mqtt_certs_path /certs \
     --cafile ca-cert \
     --certfile client.crt \
-    --keyfile client.key
+    --keyfile client.key \
+    --min_crop_side 70
 ```
 
 ---
@@ -325,7 +394,8 @@ docker run --rm -d \
     --mqtt_certs_path /certs \
     --cafile ca-cert \
     --certfile client.crt \
-    --keyfile client.key
+    --keyfile client.key \
+    --min_crop_side 70
 ```
 ---
 
@@ -355,6 +425,9 @@ A default:
 Minimum bbox width  = 70 px
 Minimum bbox height = 70 px
 ```
+This threshold is configurable through:
+
+    --min_crop_side
 
 <span style="color:red">If camera is further away from the road (Fisheye) then this needs to be changed!!</span>.
 
