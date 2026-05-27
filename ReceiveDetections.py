@@ -122,6 +122,7 @@ class ReceiveDetectionsService:
                 ]
 
                 if cls_name not in allowed_classes:
+                    print(f"[MQTT] Ignoring detection of class: {cls_name}")
                     continue
 
                 # ----------------------------------------------
