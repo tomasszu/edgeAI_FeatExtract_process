@@ -24,10 +24,9 @@ Its responsibilities are:
 
 # Input
 
-The container subscribes to an MQTT topic and supports two message formats:
+The container subscribes to an MQTT topic and supports this message format:
 
-* Legacy JSON messages
-* New CBOR-encoded crop_batch messages (current production format)
+* CBOR-encoded crop_batch messages
 
 DEMO Input Format (CBOR)
 
@@ -96,18 +95,6 @@ The `image` field contains:
 
 The container decodes this field internally into an OpenCV image (`numpy.ndarray`) before inference.
 
-## Legacy JSON Format
-
-The container still supports the older JSON-based format for backwards compatibility:
-
-```json
-{
-    "track_id": 15,
-    "cam_id": "cam_1",
-    "bbox": [523, 214, 702, 412],
-    "image": "<hex_encoded_jpg_or_png>"
-}
-```
 ---
 
 ## Expected Input Workflow
@@ -345,7 +332,7 @@ docker run --rm -d \
     --network host \
     --name tomass_feature_extract \
     -v $(pwd):/certs \
-    ghcr.io/tomasszu/reid_processes_feature_extract:jetson_latest \
+    ghcr.io/tomasszu/reid_processes_feature_extract:demo \
     --mqtt_broker edgejet2vpn.edi.lv \
     --mqtt_port 8884 \
     --mqtt_send_topic reid-vehicle-analysis \
@@ -366,7 +353,7 @@ docker run --rm -d \
     --network host \
     --name tomass_feature_extract \
     -v $(pwd):/certs \
-    ghcr.io/tomasszu/reid_processes_feature_extract:jetson_latest \
+    ghcr.io/tomasszu/reid_processes_feature_extract:demo \
     --mqtt_broker edgejet3vpn.edi.lv \
     --mqtt_port 8884 \
     --mqtt_send_topic reid-vehicle-analysis \
@@ -387,7 +374,7 @@ docker run --rm -d \
     --network host \
     --name tomass_feature_extract \
     -v $(pwd):/certs \
-    ghcr.io/tomasszu/reid_processes_feature_extract:jetson_latest \
+    ghcr.io/tomasszu/reid_processes_feature_extract:demo \
     --mqtt_broker edgejet4vpn.edi.lv \
     --mqtt_port 8884 \
     --mqtt_send_topic reid-vehicle-analysis \
